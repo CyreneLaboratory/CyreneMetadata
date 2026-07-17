@@ -1,0 +1,40 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+
+    <PackageId>CyreneMetadata</PackageId>
+    <Version>1.0.1</Version>
+    <Authors>CyreneLaboratory</Authors>
+    <Company>CyreneLaboratory</Company>
+    <Product>CyreneMetadata</Product>
+    <Description>Compile-time derived type and property metadata for trimming and Native AOT.</Description>
+    <Copyright>Copyright (c) 2026 CyreneLaboratory</Copyright>
+    <PackageProjectUrl>https://github.com/CyreneLaboratory/CyreneMetadata</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/CyreneLaboratory/CyreneMetadata</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageTags>source-generator;metadata;reflection;aot;trimming</PackageTags>
+    <PackageLicenseFile>LICENSE.txt</PackageLicenseFile>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon>Icon.png</PackageIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="..\LICENSE.txt" Pack="true" PackagePath="\" Visible="false" />
+    <None Include="..\Icon.png" Pack="true" PackagePath="\" />
+    <None Include="..\CyreneMetadata.SourceGenerator\bin\$(Configuration)\netstandard2.0\CyreneMetadata.SourceGenerator.dll"
+          Pack="true"
+          PackagePath="analyzers/dotnet/cs"
+          Visible="false" />
+    <ProjectReference Include="..\CyreneMetadata.SourceGenerator\CyreneMetadata.SourceGenerator.csproj"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+</Project>
