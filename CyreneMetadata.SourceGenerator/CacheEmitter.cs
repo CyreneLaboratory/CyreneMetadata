@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Text;
 using Microsoft.CodeAnalysis.CSharp;
 
@@ -31,6 +32,15 @@ internal static class CacheEmitter
         {
             var typeName = TypeSymbolHelper.GetTypeOfName(type);
             builder.AppendLine($"        global::CyreneMetadata.CyreneMetadataCache.RegisterCtor(typeof({typeName}), static () => new {typeName}());");
+        }
+
+        foreach (var ctor in result.ParamCtors)
+        {
+            var typeName = TypeSymbolHelper.GetTypeOfName(ctor.Type);
+            var paramNames = ctor.Constructor.Parameters.Select(p => TypeSymbolHelper.GetFullyQualifiedName(p.Type)).ToArray();
+            var types = string.Join(", ", paramNames.Select(name => $"typeof({name})"));
+            var args = string.Join(", ", paramNames.Select((name, i) => $"({name})a[{i}]!"));
+            builder.AppendLine($"        global::CyreneMetadata.CyreneMetadataCache.RegisterCtor(typeof({typeName}), new global::System.Type[] {{ {types} }}, static a => new {typeName}({args}));");
         }
 
         foreach (var root in result.PropertyRoots)

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
 using System.Reflection;
 
 namespace CyreneMetadata;
@@ -23,6 +24,21 @@ public static class CyreneMetadataCache
     {
         if (Ctors.TryGetValue(concreteType, out var factory)) return factory();
         throw new ArgumentException($"Type '{concreteType}' not have default constructor.");
+    }
+
+    private static readonly ConcurrentDictionary<Type, ArgCtor[]> ArgCtors = new();
+
+    public static object CreateInstance(Type concreteType, params object?[] args)
+    {
+        args ??= [null];
+        if (args.Length == 0) return CreateInstance(concreteType);
+
+        if (ArgCtors.TryGetValue(concreteType, out var ctors))
+            foreach (var ctor in ctors)
+                if (ctor.Match(args)) return ctor.Factory(args);
+
+        var signature = string.Join(", ", args.Select(arg => arg?.GetType().Name ?? "null"));
+        throw new ArgumentException($"Type '{concreteType}' not have constructor ({signature}).");
     }
 
     private static readonly ConcurrentDictionary<Type, CyrenePropertyInfo[]> Properties = new();
@@ -61,6 +77,13 @@ public static class CyreneMetadataCache
         Ctors.TryAdd(concreteType, ctor);
     }
 
+    public static void RegisterCtor(Type concreteType, Type[] parameterTypes, Func<object?[], object> ctor)
+    {
+        var added = new ArgCtor(parameterTypes, ctor);
+        ArgCtors.AddOrUpdate(concreteType, [added], (_, existing) =>
+            existing.Any(e => e.Parameters.SequenceEqual(parameterTypes)) ? existing : [.. existing, added]);
+    }
+
     public static void RegisterProp(Type type, CyrenePropertyInfo[] prop)
     {
         Properties.TryAdd(type, prop);
@@ -78,5 +101,31 @@ public static class CyreneMetadataCache
         var merged = new Type[set.Count];
         set.CopyTo(merged);
         return merged;
+    }
+}
+
+internal sealed class ArgCtor(Type[] parameters, Func<object?[], object> factory)
+{
+    public Type[] Parameters { get; } = parameters;
+    public Func<object?[], object> Factory { get; } = factory;
+
+    public bool Match(object?[] args)
+    {
+        if (args.Length != Parameters.Length) return false;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            var parameter = Parameters[i];
+            var arg = args[i];
+            if (arg == null)
+            {
+                if (parameter.IsValueType && Nullable.GetUnderlyingType(parameter) == null) return false;
+                continue;
+            }
+
+            if (!parameter.IsInstanceOfType(arg)) return false;
+        }
+
+        return true;
     }
 }

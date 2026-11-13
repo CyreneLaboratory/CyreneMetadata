@@ -40,6 +40,26 @@ foreach (var type in shapes)
 - 只收集有 `public` 无参构造函数的类型才可用于 `CreateInstance`
 - 支持未绑定泛型基类（如 `typeof(Repository<>)`）
 
+### 带参构造
+
+`CreateInstance(Type, params object?[] args)` 接受任意数量的构造参数。生成器根据调用处各实参的静态类型确定构造签名，并为所有已通过 `GetDerive` 收集、且拥有匹配 `public` 构造函数的派生类型生成工厂：
+
+```csharp
+using CyreneMetadata;
+
+foreach (var type in CyreneMetadataCache.GetDerive(typeof(BaseHandler)))
+{
+    // 生成 static a => new XxxHandler((Connection)a[0]!, (PacketData)a[1]!)
+    var handler = (BaseHandler)CyreneMetadataCache.CreateInstance(type, connection, packet);
+}
+```
+
+- 实参必须在调用处逐个列出，或写成集合/数组字面量（`CreateInstance(type, [a, b])`）；传入数组变量会报 `CYMT004`
+- 实参类型与构造参数一致，或可隐式引用转换/装箱时匹配；数值转换（如 `int` → `long`）与自定义转换不匹配
+- `null` 字面量匹配任意可为 null 的参数；不支持 `ref` / `out` / `in` 参数
+- 运行时按参数个数与实参的实际类型选择构造函数，没有匹配项时抛出 `ArgumentException`
+- 只为实际出现过的签名生成，不会为每个类型的所有构造函数生成工厂
+
 ### 属性元数据
 
 传入类型，获取其属性列表（含基类属性），并通过委托读写：

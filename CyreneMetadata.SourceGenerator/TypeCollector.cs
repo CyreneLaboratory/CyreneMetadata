@@ -12,8 +12,10 @@ internal sealed class TypeCollector(Compilation compilation)
 
     public CollectionResult Collect(
         IReadOnlyDictionary<INamedTypeSymbol, Location> deriveRoot,
-        IReadOnlyDictionary<INamedTypeSymbol, Location> propRoot)
+        IReadOnlyDictionary<INamedTypeSymbol, Location> propRoot,
+        IReadOnlyCollection<ImmutableArray<ITypeSymbol?>> signatures)
     {
+        var paramCtors = new SortedDictionary<string, ParamCtorResult>(StringComparer.Ordinal);
         var rootRet = ImmutableArray.CreateBuilder<RootTypeResult>();
         var diagnostics = ImmutableArray.CreateBuilder<Diagnostic>();
         var creatableTypes = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
@@ -36,6 +38,14 @@ internal sealed class TypeCollector(Compilation compilation)
 
                 derivedTypes.Add(candidate);
                 if (CanCreateInstance(candidate)) creatableTypes.Add(candidate);
+
+                foreach (var signature in signatures)
+                    foreach (var constructor in FindConstructors(candidate, signature))
+                    {
+                        var key = TypeSymbolHelper.GetFullyQualifiedName(candidate) + "|" + string.Join(", ",
+                            constructor.Parameters.Select(p => TypeSymbolHelper.GetFullyQualifiedName(p.Type)));
+                        if (!paramCtors.ContainsKey(key)) paramCtors.Add(key, new ParamCtorResult(candidate, constructor));
+                    }
             }
 
             var ordered = derivedTypes.OrderBy(TypeSymbolHelper.GetFullyQualifiedName, StringComparer.Ordinal).ToImmutableArray();
@@ -47,7 +57,8 @@ internal sealed class TypeCollector(Compilation compilation)
             propRet.Add(CollectProperties(pair.Key, creatableTypes));
 
         var orderedTypes = creatableTypes.OrderBy(TypeSymbolHelper.GetFullyQualifiedName, StringComparer.Ordinal).ToImmutableArray();
-        return new CollectionResult(rootRet.ToImmutable(), propRet.ToImmutable(), orderedTypes, diagnostics.ToImmutable());
+        return new CollectionResult(rootRet.ToImmutable(), propRet.ToImmutable(), orderedTypes,
+            [.. paramCtors.Values], diagnostics.ToImmutable());
     }
 
     private PropertyRootResult CollectProperties(INamedTypeSymbol root, HashSet<INamedTypeSymbol> creatable)
@@ -119,6 +130,44 @@ internal sealed class TypeCollector(Compilation compilation)
             constructor.Parameters.Length == 0 &&
             constructor.DeclaredAccessibility == Accessibility.Public &&
             Compilation.IsSymbolAccessibleWithin(constructor, Compilation.Assembly));
+    }
+
+    private IEnumerable<IMethodSymbol> FindConstructors(INamedTypeSymbol type, ImmutableArray<ITypeSymbol?> signature)
+    {
+        if (type.IsAbstract || type.TypeKind == TypeKind.Interface) yield break;
+        if (type.TypeArguments.Any(ContainsTypeParameter)) yield break;
+
+        foreach (var constructor in type.InstanceConstructors)
+        {
+            if (constructor.Parameters.Length != signature.Length) continue;
+            if (constructor.DeclaredAccessibility != Accessibility.Public) continue;
+            if (!Compilation.IsSymbolAccessibleWithin(constructor, Compilation.Assembly)) continue;
+
+            var match = true;
+            for (var i = 0; i < signature.Length && match; i++)
+                match = CanPassArgument(signature[i], constructor.Parameters[i]);
+
+            if (match) yield return constructor;
+        }
+    }
+
+    private bool CanPassArgument(ITypeSymbol? argType, IParameterSymbol parameter)
+    {
+        var paramType = parameter.Type;
+        if (parameter.RefKind != RefKind.None) return false;
+        if (paramType.IsRefLikeType || ContainsTypeParameter(paramType)) return false;
+        if (paramType.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer or TypeKind.Dynamic or TypeKind.Error) return false;
+        if (paramType is INamedTypeSymbol named && !Compilation.IsSymbolAccessibleWithin(named, Compilation.Assembly)) return false;
+
+        // Unknown static type only fits a parameter that accepts null
+        if (argType == null)
+            return paramType.IsReferenceType || paramType.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T;
+
+        if (SymbolEqualityComparer.Default.Equals(argType, paramType)) return true;
+
+        // Arguments are boxed, so only conversions that survive a cast from object are usable
+        var conversion = Compilation.ClassifyCommonConversion(argType, paramType);
+        return conversion.Exists && conversion.IsImplicit && !conversion.IsNumeric && !conversion.IsUserDefined;
     }
 
     private static bool ContainsTypeParameter(ITypeSymbol type)
@@ -211,12 +260,19 @@ internal sealed class TypeCollector(Compilation compilation)
 }
 
 internal sealed class CollectionResult(ImmutableArray<RootTypeResult> roots, ImmutableArray<PropertyRootResult> propertyRoots,
-    ImmutableArray<INamedTypeSymbol> creatableTypes, ImmutableArray<Diagnostic> diagnostics)
+    ImmutableArray<INamedTypeSymbol> creatableTypes, ImmutableArray<ParamCtorResult> paramCtors, ImmutableArray<Diagnostic> diagnostics)
 {
+    public ImmutableArray<ParamCtorResult> ParamCtors { get; } = paramCtors;
     public ImmutableArray<RootTypeResult> Roots { get; } = roots;
     public ImmutableArray<PropertyRootResult> PropertyRoots { get; } = propertyRoots;
     public ImmutableArray<INamedTypeSymbol> CreatableTypes { get; } = creatableTypes;
     public ImmutableArray<Diagnostic> Diagnostics { get; } = diagnostics;
+}
+
+internal sealed class ParamCtorResult(INamedTypeSymbol type, IMethodSymbol constructor)
+{
+    public INamedTypeSymbol Type { get; } = type;
+    public IMethodSymbol Constructor { get; } = constructor;
 }
 
 internal sealed class RootTypeResult(INamedTypeSymbol rootType, ImmutableArray<INamedTypeSymbol> derivedTypes)

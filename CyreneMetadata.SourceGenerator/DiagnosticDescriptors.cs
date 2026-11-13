@@ -12,4 +12,7 @@ internal static class DiagnosticDescriptors
 
     public static readonly DiagnosticDescriptor InvalidTypeOfArgument = new("CYMT003",
         "The metadata root is invalid", "", "CyreneMetadata", DiagnosticSeverity.Error, true);
+
+    public static readonly DiagnosticDescriptor RuntimeCtorArguments = new("CYMT004",
+        "The constructor arguments must be listed inline", "", "CyreneMetadata", DiagnosticSeverity.Error, true);
 }
